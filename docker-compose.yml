@@ -1,0 +1,693 @@
+version: '3.8'
+
+# Networks for segmentation (subnets set per-tier via .env)
+networks:
+  frontend-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${SUBNET_FRONTEND:-172.21.0.0/16}
+          gateway: ${GW_FRONTEND:-172.21.0.1}
+
+  backend-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${SUBNET_BACKEND:-172.22.0.0/16}
+          gateway: ${GW_BACKEND:-172.22.0.1}
+
+  data-network:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: ${SUBNET_DATA:-172.23.0.0/16}
+          gateway: ${GW_DATA:-172.23.0.1}
+
+  management-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${SUBNET_MGMT:-172.24.0.0/16}
+          gateway: ${GW_MGMT:-172.24.0.1}
+
+# Volumes for data persistence
+volumes:
+  # User Data (Bind Mounts — all services use ${WORKSPACE_DIR} directly)
+  zokai-vscode-settings:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${VSCODE_SETTINGS_DIR:-./data/vscode-settings}
+
+  # Container-Managed Data (Named Volumes)
+
+
+  zokai-logs:
+    driver: local
+
+  zokai-backups:
+    driver: local
+
+# Secrets
+secrets:
+  openai-api-key:
+    file: ${SECRETS_DIR:-../secrets}/openai-api-key.txt
+  anthropic-api-key:
+    file: ${SECRETS_DIR:-../secrets}/anthropic-api-key.txt
+  tavily-api-key:
+    file: ${SECRETS_DIR:-../secrets}/tavily-api-key.txt
+  youtube-api-key:
+    file: ${SECRETS_DIR:-../secrets}/youtube-api-key.txt
+  google-api-key:
+    file: ${SECRETS_DIR:-../secrets}/google-api-key.txt
+  google-cx:
+    file: ${SECRETS_DIR:-../secrets}/google-cx.txt
+  openrouter-api-key:
+    file: ${SECRETS_DIR:-../secrets}/openrouter-api-key.txt
+  token-json:
+    file: ${SECRETS_DIR:-../secrets}/token.json
+  zai-api-key:
+    file: ${SECRETS_DIR:-../secrets}/zai-api-key.txt
+
+services:
+  # VS Code Container (Frontend Network)
+  vs-code:
+    build:
+      context: ./containers/vs-code
+      dockerfile: Dockerfile
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
+    container_name: ${ZOKAI_INSTANCE:-zokai}-vs-code
+    restart: unless-stopped
+    ports:
+      - "${VSCODE_PORT:-8080}:8080"
+    environment:
+      - PASSWORD=${VSCODE_PASSWORD:-workstation}
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
+      - ZOKAI_INSTANCE=${ZOKAI_INSTANCE:-zokai}
+      - DATA_DIR=${DATA_DIR:-./data}
+      - TIER=${TIER:-free}
+    volumes:
+      # Docker socket for container management
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+
+      # User workspaces
+      - type: bind
+        source: ${WORKSPACE_DIR:-./data/workspaces}
+        target: /home/workspace-user/workspaces
+
+      # Removed: Legacy volume mount (Zokai Notes live in workspaces/notes/)
+
+      # Removed: separate extension volume
+      # Extensions will now reside in the user-data-dir (mounted below) or customized path
+
+      # VS Code settings & extensions persistence (Unified User Data)
+      - type: bind
+        source: ${VSCODE_SETTINGS_DIR:-./data/vscode-settings}
+        target: /home/workspace-user/.local/share/code-server
+
+      # Configuration
+      - type: bind
+        source: ./config
+        target: /home/workspace-user/config
+
+      # Scripts (Bridge scripts)
+      - type: bind
+        source: ./scripts
+        target: /home/workspace-user/scripts
+
+      # URL relay queue file is at scripts/.open-url-queue, already visible
+      # via the scripts/ bind mount above. No separate mount needed.
+
+      # MCP Knowledge Graph server (host-local Node.js, bundled in core)
+      - type: bind
+        source: ${MCP_SERVERS_DIR:-./mcp-servers/memory-kg-mcp}
+        target: /host-tools/memory-kg-mcp
+        read_only: true
+
+      # Kilo task archive (cold storage, outside workspace to avoid gap-indexer)
+      - type: bind
+        source: ${DATA_DIR:-./data}/kilo-task-archive
+        target: /home/workspace-user/kilo-task-archive
+    networks:
+      - frontend-network
+      - data-network
+      - backend-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Zombie reaper: injects tini as PID 1 to automatically reap defunct child processes.
+    # Without this, start-vscode.sh (bash) is PID 1 and never calls wait(), causing
+    # zombie accumulation from Chromium restarts, MCP bridge subprocesses, and
+    # extensionHost respawns. See retro: 2026-03-26_kilo_cpu_drain_investigation.md
+    init: true
+    secrets:
+      - openrouter-api-key
+      - zai-api-key
+
+  # NGINX Proxy (Frontend Network - Gateway)
+  nginx-proxy:
+    build:
+      context: ./containers/nginx
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./containers/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./containers/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./containers/nginx/splash.html:/etc/nginx/splash.html:ro
+      - zokai-logs:/var/log/nginx
+      - ./config/dashboard:/etc/nginx/dashboard:ro
+      - ${WORKSPACE_DIR:-./data/workspaces}:/workspaces:ro
+    networks:
+      - frontend-network
+      - backend-network
+      - data-network
+      - management-network
+    depends_on:
+      - qdrant
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [ "CMD", "nginx", "-t" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # GPTR-MCP Container (Backend Network) - Uses SSE transport for stable connections
+  gptr-mcp:
+    build:
+      context: ./containers/mcp-services/gptr-mcp
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-gptr-mcp
+    restart: unless-stopped
+    # No host port — container-to-container only
+    environment:
+      - PORT=8000
+      - LOG_LEVEL=info
+      - OPENAI_API_KEY_FILE=/run/secrets/openai-api-key
+      - OPENROUTER_API_KEY_FILE=/run/secrets/openrouter-api-key
+      - OPENAI_BASE_URL=https://openrouter.ai/api/v1
+      - ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic-api-key
+      - TAVILY_API_KEY_FILE=/run/secrets/tavily-api-key
+      # Embeddings: route to local FastEmbed server (OpenAI-compatible /v1/embeddings)
+      # openai_api_base in EMBEDDING_KWARGS overrides OPENAI_BASE_URL for embeddings only
+      - EMBEDDING=${EMBEDDING:-openai:embed}
+      - EMBEDDING_KWARGS={"openai_api_base":"http://embedding-server:7997/v1","openai_api_key":"no-key-needed","check_embedding_ctx_length":false}
+      - LLM_API_BASE=${LLM_API_BASE:-https://openrouter.ai/api/v1}
+      - RESEARCH_TIMEOUT=300
+      - REPORT_TIMEOUT=1200
+      - SCRAPER=bs
+      - MCP_TRANSPORT=sse
+      # Model settings come from the user-editable zokai-config.json.
+      # ZOKAI_CONFIG_PATH (not CONFIG_PATH — that's reserved by GPTResearcher itself).
+      - ZOKAI_CONFIG_PATH=/app/zokai-config.json
+    secrets:
+      - openai-api-key
+      - anthropic-api-key
+      - tavily-api-key
+      - openrouter-api-key
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    volumes:
+      - zokai-logs:/app/logs
+      - ./config/central-config.json:/app/config.json:ro
+      - ./shared:/app/shared:ro
+      # Research config (model selection, retriever, etc.) — visible in workspace/.zokai/
+      - ${ZOKAI_CONFIG:-${WORKSPACE_DIR:-./data/workspaces}/.zokai/zokai-config.json}:/app/zokai-config.json
+    networks:
+      - backend-network
+      - data-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Service Discovery Container (Backend Network)
+  service-discovery:
+    build:
+      context: ./containers/mcp-services/service-discovery
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-service-discovery
+    restart: unless-stopped
+    # No host port — container-to-container only
+    environment:
+      - PORT=8005
+      - LOG_LEVEL=info
+    volumes:
+      - zokai-logs:/app/logs
+      - ./config/central-config.json:/app/config.json:ro
+    networks:
+      - backend-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8005/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Configuration Service Container (Backend Network)
+  config-service:
+    build:
+      context: ./containers/mcp-services/config-service
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-config-service
+    restart: unless-stopped
+    # No host port — container-to-container only
+    environment:
+      - PORT=8006
+      - LOG_LEVEL=info
+    volumes:
+      - zokai-logs:/app/logs
+      - ./config/central-config.json:/app/config.json:ro
+    networks:
+      - backend-network
+      - data-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8006/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Raindrop MCP Container (Backend Network)
+  # YouTube MCP Container (Backend Network - Sleeper, executed via bridge stdio)
+  youtube-mcp:
+    build:
+      context: ./containers/mcp-services/youtube-mcp
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-youtube-mcp
+    restart: unless-stopped
+    entrypoint: [ "tail", "-f", "/dev/null" ]
+    environment:
+      - LOG_LEVEL=info
+      - YOUTUBE_API_KEY_FILE=/run/secrets/youtube-api-key
+      - YOUTUBE_KEY_FILE=/run/secrets/youtube-api-key
+      - YOUTUBE_OUTPUT_DIR=/home/workspace-user/workspaces/outputs/youtube
+    secrets:
+      - youtube-api-key
+    volumes:
+      - zokai-logs:/app/logs
+      - ${WORKSPACE_DIR:-./data/workspaces}:/home/workspace-user/workspaces
+    networks:
+      - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Tavily MCP Container (Backend Network - Sleeper, executed via bridge stdio)
+  tavily-mcp:
+    build:
+      context: ./containers/mcp-services/tavily-mcp
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-tavily-mcp
+    hostname: tavily-mcp
+    restart: unless-stopped
+    networks:
+      - backend-network
+    ports:
+      - "${TAVILY_MCP_PORT:-8000}:8000"
+    environment:
+      - MCP_TRANSPORT=stdio
+      - TAVILY_API_KEY_FILE=/run/secrets/tavily-api-key
+    secrets:
+      - tavily-api-key
+    volumes:
+      - ${WORKSPACE_DIR:-./data/workspaces}:/workspaces:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "tail"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: ["tail", "-f", "/dev/null"]  # Sleeper container pattern
+
+  # GitHub MCP Container (Backend Network)
+  # Gmail MCP Container (Backend Network)
+  gmail-mcp:
+    build:
+      context: .
+      dockerfile: ./containers/mcp-services/gmail-mcp/Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-gmail-mcp
+    restart: unless-stopped
+    ports:
+      - "${GMAIL_MCP_PORT:-8007}:8000"
+      - "${GMAIL_DASHBOARD_PORT:-8017}:8007" # HTTP API for Dashboard (Draft Box, email body)
+    environment:
+      - PORT=8000
+      - MCP_TRANSPORT=sse
+      - LOG_LEVEL=info
+      # - GOOGLE_TOKEN_FILE=/run/secrets/token-json # Deprecated, using Auth Manager
+      - AUTH_MANAGER_URL=http://secrets-manager:9001/auth/token
+      - HOST=0.0.0.0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - EMBEDDING_BASE_URL=http://embedding-server:7997
+      - EMBEDDING_MODEL_ID=${EMBEDDING_MODEL_ID}
+      - VECTOR_SIZE=${EMBEDDING_DIMENSIONS:-768}
+      - HTTP_PORT=8007
+    secrets:
+      - token-json
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    volumes:
+      - zokai-logs:/app/logs
+      - ./shared:/app/shared:ro
+      - ${WORKSPACE_DIR:-./data/workspaces}:/workspaces:ro  # WO-MAIL-ATT-1a: Workspace files for email attachments
+      - ${WORKSPACE_DIR:-./data/workspaces}/mail-attachments:/workspaces/mail-attachments  # WO-MAIL-DL-1a: Writable for attachment downloads
+    networks:
+      - backend-network
+      - data-network
+    depends_on:
+      - qdrant
+      - embedding-server
+    healthcheck:
+      test: [ "CMD", "curl", "-s", "http://localhost:8000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  calendar-mcp:
+    build:
+      context: .
+      dockerfile: ./containers/mcp-services/calendar-mcp/Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-calendar-mcp
+    restart: unless-stopped
+    ports:
+      - "${CALENDAR_MCP_PORT:-8008}:8000"
+      - "${CALENDAR_DASHBOARD_PORT:-8018}:8007"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - MCP_TRANSPORT=sse
+      - HTTP_PORT=8007
+      - LOG_LEVEL=info
+      # - GOOGLE_TOKEN_FILE=/run/secrets/token-json # Deprecated, using Auth Manager
+      - AUTH_MANAGER_URL=http://secrets-manager:9001/auth/token
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - EMBEDDING_BASE_URL=http://embedding-server:7997
+      - EMBEDDING_MODEL_ID=${EMBEDDING_MODEL_ID}
+      - VECTOR_SIZE=${EMBEDDING_DIMENSIONS:-768}
+      - TZ=${TZ:-UTC}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    secrets:
+      - token-json
+    volumes:
+      - zokai-logs:/app/logs
+      - ./shared:/app/shared:ro
+    networks:
+      - backend-network
+      - data-network
+    depends_on:
+      - qdrant
+      - secrets-manager
+      - embedding-server
+      - redis
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request, urllib.error, sys;\ 
+
+            try: urllib.request.urlopen('http://localhost:8000/messages')
+
+            except urllib.error.HTTPError: sys.exit(0)
+
+            except: sys.exit(1)\""
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Ingestor Service (Background)
+  ingestor:
+    build:
+      context: ./containers/ingestor
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-ingestor
+    restart: unless-stopped
+    # No host port — container-to-container only
+    environment:
+      - PORT=8009
+      - LOG_LEVEL=info
+      - PYTHONUNBUFFERED=1
+      - AUTH_MANAGER_URL=http://secrets-manager:9001/auth/token
+      - POLL_INTERVAL=30
+      - BATCH_SIZE=50
+      - QDRANT_HOST=qdrant
+      - EMBEDDING_BASE_URL=http://embedding-server:7997
+      - EMBEDDING_MODEL_ID=${EMBEDDING_MODEL_ID}
+      - VECTOR_SIZE=${EMBEDDING_DIMENSIONS:-768}
+      - ATTACHMENTS_DIR=/data/attachments
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB:-25}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - zokai-logs:/app/logs
+      - ${ATTACHMENTS_DIR:-./data/attachments}:/data/attachments
+    networks:
+      - backend-network
+      - data-network
+    depends_on:
+      - qdrant
+      - embedding-server
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # FastEmbed Embedding Server (Data Network)
+  embedding-server:
+    build:
+      context: ./containers/embedding-server
+      dockerfile: Dockerfile
+      args:
+        EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:-sentence-transformers/paraphrase-multilingual-mpnet-base-v2}
+    container_name: ${ZOKAI_INSTANCE:-zokai}-embedding-server
+    restart: unless-stopped
+    environment:
+      - MODEL_ID=${EMBEDDING_MODEL_ID}
+      - PORT=7997
+      - MAX_CONCURRENT_REQUESTS=${EMBED_MAX_CONCURRENT:-3}
+    # No host port — container-to-container only
+    networks:
+      - data-network
+      - default # Internet access for healthcheck
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+    healthcheck:
+      test: [ "CMD", "curl", "-sf", "http://localhost:7997/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # Qdrant Vector Database (Data Network)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ${ZOKAI_INSTANCE:-zokai}-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-16333}:6333" # HTTP API (localhost only)
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-16334}:6334" # gRPC API (localhost only)
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__LOG_LEVEL=INFO
+    volumes:
+      - ${QDRANT_DATA_DIR:-./data/qdrant/storage}:/qdrant/storage
+      - zokai-logs:/qdrant/logs
+    networks:
+      - data-network
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "echo > /dev/tcp/localhost/6333" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # Redis Cache (Data Network)
+  redis:
+    image: redis:7-alpine
+    container_name: ${ZOKAI_INSTANCE:-zokai}-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379" # localhost only
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - ${REDIS_DATA_DIR:-./data/redis/data}:/data
+      - zokai-logs:/var/log/redis
+    networks:
+      - data-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Ollama removed — all embeddings consolidated to embedding-server:7997.
+  # For Privacy Mode LLM inference, install Ollama on the host and set
+  # LLM_API_BASE=http://host.docker.internal:11434/v1 in .env.
+
+
+  # MCP Tasks Service (Sleeper Container - executed via bridge)
+  mcp-tasks:
+    build:
+      context: ./containers/mcp-tasks-enhanced
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-mcp-tasks
+    restart: unless-stopped
+    environment:
+      - TRANSPORT=stdio
+      - INSTRUCTIONS=Task file is at /home/workspace-user/workspaces/antigravity_tasks.md. Call tasks_setup with this path.
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 128M
+    volumes:
+      - ${WORKSPACE_DIR:-./data/workspaces}:/app/workspace:rw
+    networks:
+      - backend-network
+    command: [ "tail", "-f", "/dev/null" ]
+
+  # Ideas MCP Service (Backend Network - Ideas Board)
+  # Cloud Sync Service (Pro — Google Drive bidirectional sync)
+  # Postgres Database (Data Network)
+  # Postgres MCP Container (Backend Network)
+  # Markdownify MCP Service (Document Conversion)
+  markdownify-mcp:
+    build:
+      context: ./containers/mcp-services/markdownify-mcp
+    container_name: ${ZOKAI_INSTANCE:-zokai}-markdownify-mcp
+    networks:
+      - backend-network
+    environment:
+      - MARKDOWNIFY_OUTPUT_DIR=/home/workspace-user/workspaces/outputs/markdownify
+    # No host port — container-to-container only
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data:ro # Optional: Read-only access to data for file processing
+      - ${WORKSPACE_DIR:-./data/workspaces}:/home/workspace-user/workspaces # Access to user workspaces
+      - ./shared:/app/shared:ro
+
+    restart: unless-stopped
+    entrypoint: tail -f /dev/null
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  workspace-manager:
+    build:
+      context: ./containers/workspace-manager
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-workspace-manager
+    restart: unless-stopped
+    ports:
+      - "${WORKSPACE_MGR_PORT:-9000}:9000"
+    environment:
+      - PORT=9000
+      - LOG_LEVEL=info
+    volumes:
+      - ${WORKSPACE_DIR:-./data/workspaces}:/workspaces
+      - zokai-backups:/backups
+      - zokai-logs:/app/logs
+      - ./config/central-config.json:/app/config.json:ro
+    networks:
+      - management-network
+      - frontend-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Secrets Manager (Management Network)
+  secrets-manager:
+    build:
+      context: ./containers/secrets-manager
+      dockerfile: Dockerfile
+    container_name: ${ZOKAI_INSTANCE:-zokai}-secrets-manager
+    restart: unless-stopped
+    ports:
+      - "${SECRETS_MGR_PORT:-9001}:9001"
+      - "127.0.0.1:${OAUTH_CALLBACK_PORT:-9002}:9002" # OAuth callback (localhost only)
+    environment:
+      - PORT=9001
+      - LOG_LEVEL=info
+      - TOKEN_PATH=/app/secrets/token.json
+      - CREDENTIALS_PATH=/app/secrets/credentials.json
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - REDIS_HOST=redis
+      - OAUTH_REDIRECT_URI=http://localhost:${OAUTH_CALLBACK_PORT:-9002}
+    volumes:
+      - ${SECRETS_DIR:-../secrets}:/app/secrets
+      - zokai-logs:/app/logs
+    networks:
+      - management-network
+      - backend-network
+      - data-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9001/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

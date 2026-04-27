@@ -1,0 +1,77 @@
+{
+  "mcpServers": {
+    "gptr-mcp": {
+      "command": "bash",
+      "args": [
+        "/home/workspace-user/scripts/mcp-bridge.sh",
+        "gptr-mcp"
+      ],
+      "env": {
+        "GPTR_MODE": "proxy"
+      },
+      "disabled": false,
+      "timeout": 900,
+      "disabledTools": [
+        "quick_search"
+      ]
+    },
+    "gmail-mcp": {
+      "command": "bash",
+      "args": [
+        "/home/workspace-user/scripts/mcp-bridge.sh",
+        "gmail-mcp"
+      ],
+      "disabled": false,
+      "timeout": 900
+    },
+    "calendar-mcp": {
+      "command": "bash",
+      "args": [
+        "/home/workspace-user/scripts/mcp-bridge.sh",
+        "calendar-mcp"
+      ],
+      "disabled": false,
+      "timeout": 900
+    },
+    "youtube-mcp": {
+      "command": "bash",
+      "args": [
+        "/home/workspace-user/scripts/mcp-bridge.sh",
+        "youtube-mcp"
+      ],
+      "disabled": false,
+      "timeout": 900
+    },
+    "mcp-tasks": {
+      "command": "bash",
+      "args": [
+        "/home/workspace-user/scripts/mcp-bridge.sh",
+        "mcp-tasks"
+      ],
+      "disabled": false,
+      "timeout": 300
+    },
+    "markdownify-mcp": {
+      "command": "bash",
+      "args": [
+        "/home/workspace-user/scripts/mcp-bridge.sh",
+        "markdownify-mcp"
+      ],
+      "disabled": false,
+      "timeout": 300,
+      "disabledTools": [
+        "webpage-to-markdown",
+        "bing-search-to-markdown"
+      ]
+    },
+    "tavily-mcp": {
+      "command": "bash",
+      "args": [
+        "/home/workspace-user/scripts/mcp-bridge.sh",
+        "tavily-mcp"
+      ],
+      "disabled": false,
+      "timeout": 300
+    }
+  }
+}

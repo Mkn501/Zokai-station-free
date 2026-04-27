@@ -1,0 +1,21 @@
+# GPT Researcher dependencies
+gpt-researcher>=0.14.0
+beautifulsoup4>=4.12.3
+duckduckgo-search>=5.0.0
+ddgs>=6.0.0  # GPT-Researcher imports 'from ddgs import DDGS' for DuckDuckGo retriever
+redis
+python-dotenv
+qdrant-client
+
+# MCP dependencies
+fastmcp>=2.8.0
+fastapi>=0.103.1
+uvicorn>=0.23.2
+pydantic>=2.3.0
+
+# Utility dependencies
+loguru>=0.7.0
+
+# Testing dependencies
+httpx>=0.24.0
+sseclient-py>=1.7.0

@@ -1,0 +1,34 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "files.autoSave": "onFocusChange",
+        "editor.snippetSuggestions": "inline",
+        "editor.suggest.snippetsPreventQuickSuggestions": false,
+        "editor.suggest.showSnippets": true,
+        "editor.tabCompletion": "on",
+        "foam.edit.linkReferenceDefinitions": "withExtensions",
+        "foam.files.ignore": [
+            "**/projects/**",
+            "**/scripts/**",
+            "**/temp/**",
+            "**/.vscode/**",
+            "**/.zokai/templates/**"
+        ],
+        "foam.templates.templateDirectory": ".zokai/templates"
+    },
+    "extensions": {
+        "recommendations": [
+            "foam.foam-vscode",
+            "cweijan.vscode-office",
+            "redhat.vscode-yaml"
+        ],
+        "unwantedRecommendations": [
+            "dendron.dendron",
+            "dendron.dendron-paste-image"
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+  "_comment": "Zokai Station \u2014 Web Research Configuration",
+  "_docs": "Edit this file to change which AI models power your web research.",
+  "_models_help": "Format: 'provider:model-name'. Use 'openrouter:' prefix for OpenRouter models.",
+  "_openrouter_models": "Browse free models at https://openrouter.ai/models (filter by 'Free')",
+  "_tavily_help": "Get a free key at tavily.com (1,000 searches/month free). Leave as PLACEHOLDER to use DuckDuckGo instead.",
+  "FAST_LLM": "openrouter:z-ai/glm-4.5-air:free",
+  "SMART_LLM": "openrouter:minimax/minimax-m2.5:free",
+  "KW_LLM_MODEL": "openrouter:minimax/minimax-m2.7",
+  "RETRIEVER": "duckduckgo",
+  "TAVILY_API_KEY": "PLACEHOLDER"
+}
