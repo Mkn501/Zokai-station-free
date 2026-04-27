@@ -1,0 +1,55 @@
+Zokai™ Station
+Copyright (c) 2026 Minh Khoa Nguyen
+
+This product includes software developed by Minh Khoa Nguyen.
+
+The "Kilo Code" configuration, orchestration scripts, and custom MCP agents 
+are the exclusive intellectual property of the copyright holder.
+
+Zokai™ is a trademark of Minh Khoa Nguyen.
+
+────────────────────────────────────────────────────────────────
+Third-Party Software Notices
+────────────────────────────────────────────────────────────────
+
+This product includes or depends on the following open-source components:
+
+  github-mcp-server
+    Copyright (c) GitHub, Inc.
+    Licensed under the MIT License.
+    https://github.com/github/github-mcp-server
+
+  GPT Researcher
+    Copyright (c) Assaf Elovic
+    Licensed under the MIT License.
+    https://github.com/assafelovic/gpt-researcher
+
+  FastMCP
+    Copyright (c) PrefectHQ
+    Licensed under the Apache License, Version 2.0.
+    https://github.com/PrefectHQ/fastmcp
+
+  Qdrant
+    Copyright (c) Qdrant Solutions GmbH
+    Licensed under the Apache License, Version 2.0.
+    https://github.com/qdrant/qdrant
+
+  FastEmbed
+    Copyright (c) Qdrant Solutions GmbH
+    Licensed under the Apache License, Version 2.0.
+    https://github.com/qdrant/fastembed
+
+  code-server
+    Copyright (c) Coder Technologies, Inc.
+    Licensed under the MIT License.
+    https://github.com/coder/code-server
+
+  MCP Knowledge Graph
+    Copyright (c) Shane Holloman
+    Licensed under the MIT License.
+    https://github.com/shaneholloman/mcp-knowledge-graph
+
+  Foam
+    Copyright (c) Foam contributors
+    Licensed under the MIT License.
+    https://github.com/foambubble/foam

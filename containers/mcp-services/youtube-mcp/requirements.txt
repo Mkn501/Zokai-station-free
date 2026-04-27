@@ -1,0 +1,6 @@
+# YouTube MCP Server Dependencies
+mcp>=1.0.0
+fastmcp>=2.0.0
+starlette
+youtube-transcript-api>=1.2.0
+google-api-python-client>=2.108.0

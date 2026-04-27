@@ -1,0 +1,146 @@
+#!/bin/bash
+# zokai-launcher — Zokai Station one-click launcher
+# Checks Docker → starts containers → opens Zokai in Chrome app mode
+set -eo pipefail
+
+# .app bundles have minimal PATH — expand explicitly (proven pattern from installer)
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# ─── Paths (patched by installer at install time) ────────────────────────────
+INSTALL_DIR="__INSTALL_DIR__"
+DATA_DIR="__DATA_DIR__"
+
+# Read port from .env — check tier-specific env files (.env.free, .env.mkn) too.
+# Use NGINX as the user-facing gateway (splash page + dashboard + VS Code proxy).
+read_env_var() {
+    local var_name="$1"
+    for env_file in "$DATA_DIR/.env" "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.free" "$INSTALL_DIR/.env.mkn"; do
+        local val=$(grep "^${var_name}=" "$env_file" 2>/dev/null | cut -d= -f2)
+        if [ -n "$val" ]; then echo "$val"; return; fi
+    done
+}
+
+NGINX_PORT=$(read_env_var "NGINX_HTTP_PORT")
+if [ -z "$NGINX_PORT" ]; then
+    # Fallback: direct VS Code port (no splash page)
+    NGINX_PORT=$(read_env_var "VSCODE_PORT")
+    NGINX_PORT="${NGINX_PORT:-8080}"
+fi
+URL="http://localhost:${NGINX_PORT}"
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+show_error() {
+    osascript -e "display alert \"Zokai Station\" message \"$1\" as critical buttons {\"OK\"}" 2>/dev/null
+}
+
+notify() {
+    osascript -e "display notification \"$1\" with title \"Zokai Station\"" 2>/dev/null
+}
+
+# Persistent background progress dialog — same pattern as install-launcher
+# Spawns an osascript dialog in the background, replaces it with updated text on each call
+PROGRESS_PID=""
+show_progress() {
+    # Kill previous dialog if running (|| true: don't fail if PID empty/gone)
+    kill $PROGRESS_PID 2>/dev/null || true; wait $PROGRESS_PID 2>/dev/null || true
+    osascript -e "display dialog \"$1\" buttons {\"Please wait…\"} default button 1 with title \"Zokai Station\" with icon note giving up after 7200" 2>/dev/null &
+    PROGRESS_PID=$!
+}
+
+dismiss_progress() {
+    kill $PROGRESS_PID 2>/dev/null || true; wait $PROGRESS_PID 2>/dev/null || true
+    PROGRESS_PID=""
+}
+
+# ─── Guard: install dir must exist ────────────────────────────────────────────
+if [ ! -d "$INSTALL_DIR" ]; then
+    show_error "Zokai Station is not installed.\n\nExpected location:\n$INSTALL_DIR\n\nPlease run the installer first."
+    exit 1
+fi
+
+# ─── Step 1: Ensure Docker Desktop is running ─────────────────────────────────
+if ! docker info &>/dev/null; then
+    show_progress "🐳 Starting Docker Desktop…\n\nThis usually takes 10–20 seconds."
+    open -a "Docker" 2>/dev/null || {
+        dismiss_progress
+        show_error "Docker Desktop is not installed.\n\nPlease install Docker Desktop from https://docker.com and try again."
+        exit 1
+    }
+    # Poll up to 90s for Docker daemon to become ready
+    WAITED=0
+    until docker info &>/dev/null; do
+        sleep 1
+        WAITED=$((WAITED + 1))
+        if [ $WAITED -ge 90 ]; then
+            dismiss_progress
+            show_error "Docker Desktop did not start within 90 seconds.\n\nPlease start Docker Desktop manually and try again."
+            exit 1
+        fi
+    done
+fi
+
+# ─── Step 2: Ensure containers are running ────────────────────────────────────
+cd "$INSTALL_DIR"
+
+# Auto-detect tier-specific env file (.env.free, .env.mkn, or .env)
+ENV_FILE=""
+for ef in .env.free .env.mkn .env; do
+    if [ -f "$INSTALL_DIR/$ef" ]; then ENV_FILE="$ef"; break; fi
+done
+COMPOSE_ENV=""
+if [ -n "$ENV_FILE" ]; then COMPOSE_ENV="--env-file $ENV_FILE"; fi
+
+# Count running containers using --status filter (clean integer, no grep pipeline)
+RUNNING=$(docker compose $COMPOSE_ENV ps --status running --quiet 2>/dev/null | wc -l | tr -d ' \n' || echo "0")
+
+if [ "$RUNNING" -lt 3 ]; then
+    show_progress "🚀 Starting Zokai services…\n\nThis takes 15–30 seconds on first start."
+    docker compose $COMPOSE_ENV up -d --remove-orphans >/dev/null 2>&1 || {
+        dismiss_progress
+        show_error "Failed to start Zokai services.\n\nCheck Docker Desktop for errors."
+        exit 1
+    }
+fi
+
+# ─── Step 3: Wait for Nginx to be reachable (splash page OR VS Code) ──────────
+# We wait for ANY HTTP response (even 502 = splash page) rather than waiting
+# for VS Code to be fully ready. The splash page handles the rest in-browser.
+# curl exit 7 = connection refused (nginx not up), any other = nginx responding.
+nginx_responding() {
+    curl -so /dev/null "$URL" 2>/dev/null
+    local rc=$?
+    # Exit 0 = success (VS Code ready), exit 7 = connection refused (not ready)
+    # Any other exit code means nginx responded (even with 502) = splash page works
+    [ "$rc" -ne 7 ]
+}
+
+if ! nginx_responding; then
+    show_progress "⏳ Waiting for Zokai to be ready…\n\nAlmost there!"
+    ATTEMPTS=0
+    until nginx_responding; do
+        sleep 2
+        ATTEMPTS=$((ATTEMPTS + 1))
+        if [ $ATTEMPTS -ge 30 ]; then
+            break
+        fi
+    done
+fi
+
+# Dismiss progress dialog before opening Chrome
+dismiss_progress
+
+# ─── Step 4: Open Zokai in Chrome/Chromium app mode (borderless window) ───────
+# Use binary directly (not `open -a`) so --app flag is applied even when
+# Chrome is already running. `open -a --args` is ignored for running apps.
+CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+CHROMIUM_BIN="/Applications/Chromium.app/Contents/MacOS/Chromium"
+
+if [ -f "$CHROME_BIN" ]; then
+    "$CHROME_BIN" --app="$URL" &
+elif [ -f "$CHROMIUM_BIN" ]; then
+    "$CHROMIUM_BIN" --app="$URL" &
+else
+    # Fallback: default browser (no borderless mode)
+    notify "Chrome not found — opening in default browser."
+    open "$URL"
+fi

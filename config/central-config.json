@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "last_updated": "2025-12-21",
+  "install_mode": "automated",
+  "workspace": {
+    "default_directory": "/home/workspace-user/workspaces",
+    "auto_backup": true,
+    "backup_schedule": "0 2 * * *"
+  },
+  "services": {
+    "vs_code": {
+      "theme": "dark",
+      "auto_save": true,
+      "extensions": [
+        "foam.foam-vscode",
+        "ms-python.python"
+      ],
+      "kilo_code": {
+        "auto_update": true,
+        "update_schedule": "daily"
+      },
+      "settings_persistence": {
+        "enabled": true,
+        "settings_dir": "./data/vscode-settings",
+        "backup_settings": true
+      },
+      "log_level": "trace"
+    },
+    "mcp_services": {
+      "core_services": [
+        "gptr-mcp"
+      ],
+      "optional_services": [],
+      "auto_discovery": true,
+      "api_keys": "docker_secrets",
+      "llm_provider": "lm_studio",
+      "llm_api_base": "https://openrouter.ai/api/v1"
+    }
+  }
+}
