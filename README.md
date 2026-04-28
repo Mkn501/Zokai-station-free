@@ -68,17 +68,53 @@ This is the **Free tier** — fully functional, no time limit, no feature crippl
 
 ## System Requirements
 
-| | Minimum | Recommended |
-|---|---|---|
-| **RAM** | 16 GB ⚠️ | 32 GB ✅ |
-| **Disk** | 20 GB free | 40 GB+ |
-| **OS** | macOS 13+, Windows 10+ | macOS 14+ (Apple Silicon) |
-| **Docker Desktop** | 24.x+ | Latest |
-| **Browser** | Chrome or Chromium | Chrome |
-
-> **Why 16 GB minimum?** The Docker containers idle at ~6.5 GB, but the Docker VM itself adds ~5 GB overhead (macOS) or ~2 GB (Windows WSL2), bringing total system usage to ~13 GB before your browser opens. 32 GB is the sweet spot.
+| | Minimum | Recommended | Optimal |
+|---|---|---|---|
+| **RAM** | 16 GB ⚠️ | 24 GB | 32+ GB ✅ |
+| **Disk** | 10 GB free | 20 GB free | SSD recommended |
+| **CPU** | 4 cores | 6+ cores | Apple M-series / modern x86 |
+| **OS** | macOS 13+, Windows 10+ | macOS 14+, Windows 11 | macOS (Apple Silicon) |
+| **Docker Desktop** | 24.x+ | Latest | Latest |
+| **Browser** | Chrome or Chromium | Chrome | Chrome |
 
 > ⚠️ **Docker Desktop RAM**: Make sure Docker Desktop is allocated at least **8 GB RAM** in **Settings → Resources → Memory**. The macOS default (4 GB) is not enough — the containers alone need ~6.5 GB.
+
+### The Cost of Sovereignty
+
+Zokai Station runs **~20 Docker containers locally** — a full AI workstation including IDE, vector database, embedding engine, MCP services, and productivity tools. This is what keeps your data on your machine instead of someone else's server.
+
+Here's what that costs in RAM:
+
+| Service Group | What it does | Idle RAM |
+|---|---|---|
+| **VS Code + AI agent** | Browser-based IDE + Kilo Code | ~1,600 MB |
+| **Embedding server** | Local text→vector conversion (FastEmbed) | ~800 MB |
+| **Deep Research (GPTR)** | Web research agent | ~800 MB |
+| **Qdrant + Redis** | Vector search + caching | ~230 MB |
+| **Gmail + Calendar + Ingestor** | Email/calendar intelligence | ~450 MB |
+| **MCP services** (7×) | YouTube, Tavily, GitHub, Tasks, etc. | ~370 MB |
+| **Nginx + system services** | Proxy, secrets, config | ~210 MB |
+| **Docker VM overhead** | Kernel, filesystem cache, page tables | ~1,500 MB |
+| **Total** | | **~6,000 MB containers + ~1,500 MB VM** |
+
+**On a 16 GB machine**: macOS/Windows uses ~10 GB at idle. Docker adds ~7.5 GB. That leaves ~0 GB for your browser and other apps — which means swap thrashing and visible slowness.
+
+**On a 24 GB machine**: Comfortable. ~6 GB headroom for browsing, documents, and development tools.
+
+**On a 32+ GB machine**: Optimal. Full headroom for everything, including heavy AI workloads and local LLM inference.
+
+### Which mode is right for you?
+
+| Your hardware | Recommended setup | Experience |
+|---|---|---|
+| **Apple Silicon Mac (24-64 GB)** | Full Local | ⭐ Best — all services, fast embedding |
+| **Modern PC (24+ GB, SSD)** | Full Local | Great — all services run comfortably |
+| **Older laptop (16 GB)** | Full Local (tight) | Functional — expect some swap pressure |
+| **Thin client / Chromebook** | Cloud deploy | Browser only — run Zokai on a server, access remotely |
+
+> **Why not just make it lighter?** We could — by sending your emails, calendar, and documents to a cloud API for processing. But that would defeat the purpose. The resource footprint is the price of keeping everything local. We believe it's worth paying.
+>
+> We're actively working on **Resource-Lite configurations** that reduce RAM usage for smaller machines — including optional cloud embedding for users who are comfortable with that trade-off. Follow our [roadmap](https://zokai.ai) for updates.
 
 ---
 
