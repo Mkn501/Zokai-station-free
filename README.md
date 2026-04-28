@@ -77,7 +77,7 @@ This is the **Free tier** — fully functional, no time limit, no feature crippl
 | **Docker Desktop** | 24.x+ | Latest | Latest |
 | **Browser** | Chrome or Chromium | Chrome | Chrome |
 
-> ⚠️ **Docker Desktop RAM**: Make sure Docker Desktop is allocated at least **8 GB RAM** in **Settings → Resources → Memory**. The macOS default (4 GB) is not enough — the containers alone need ~6.5 GB.
+> ⚠️ **Docker Desktop RAM**: Make sure Docker Desktop is allocated at least **10 GB RAM** in **Settings → Resources → Memory**. The macOS default (4 GB) is not enough.
 
 ### The Cost of Sovereignty
 
@@ -85,21 +85,22 @@ Zokai Station runs **~20 Docker containers locally** — a full AI workstation i
 
 Here's what that costs in RAM:
 
-| Service Group | What it does | Idle RAM |
-|---|---|---|
-| **VS Code + AI agent** | Browser-based IDE + Kilo Code | ~1,600 MB |
-| **Embedding server** | Local text→vector conversion (FastEmbed) | ~800 MB |
-| **Deep Research (GPTR)** | Web research agent | ~800 MB |
-| **Qdrant + Redis** | Vector search + caching | ~230 MB |
-| **Gmail + Calendar + Ingestor** | Email/calendar intelligence | ~450 MB |
-| **MCP services** (7×) | YouTube, Tavily, GitHub, Tasks, etc. | ~370 MB |
-| **Nginx + system services** | Proxy, secrets, config | ~210 MB |
-| **Docker VM overhead** | Kernel, filesystem cache, page tables | ~1,500 MB |
-| **Total** | | **~6,000 MB containers + ~1,500 MB VM** |
+| Service Group | What it does | Idle | Peak (under load) |
+|---|---|---|---|
+| **VS Code + AI agent** | Browser-based IDE + Kilo Code | ~1,600 MB | ~1,600 MB |
+| **Embedding server** | Local text→vector conversion (FastEmbed) | ~200 MB | **up to 3,000 MB** |
+| **Deep Research (GPTR)** | Web research agent | ~100 MB | **up to 2,000 MB** |
+| **Qdrant + Redis** | Vector search + caching | ~230 MB | ~400 MB |
+| **Gmail + Calendar + Ingestor** | Email/calendar intelligence | ~150 MB | ~450 MB |
+| **MCP services** (7×) | YouTube, Tavily, GitHub, Tasks, etc. | ~100 MB | ~370 MB |
+| **Nginx + system services** | Proxy, secrets, config | ~80 MB | ~210 MB |
+| **Containers total** | | **~2,500 MB** | **~8,000 MB** |
 
-**On a 16 GB machine**: macOS/Windows uses ~10 GB at idle. Docker adds ~7.5 GB. That leaves ~0 GB for your browser and other apps — which means swap thrashing and visible slowness.
+> **Note**: Docker Desktop runs a Linux VM that reserves memory from your OS. Set its allocation to **10–12 GB** to handle peak loads without out-of-memory kills. macOS/Windows will see the full VM allocation as consumed RAM regardless of actual container usage.
 
-**On a 24 GB machine**: Comfortable. ~6 GB headroom for browsing, documents, and development tools.
+**On a 16 GB machine**: macOS/Windows uses ~10 GB at idle. Docker needs 10 GB allocation. That leaves ~0 GB for your browser — which means swap thrashing and visible slowness.
+
+**On a 24 GB machine**: Comfortable. Docker gets 12 GB, leaving ~2–4 GB headroom for browsing and development tools.
 
 **On a 32+ GB machine**: Optimal. Full headroom for everything, including heavy AI workloads and local LLM inference.
 
